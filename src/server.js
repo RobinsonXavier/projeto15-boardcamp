@@ -21,6 +21,13 @@ const gamesSchema = joi.object({
     categoryId: joi.number().required()
 });
 
+const customersSchema = joi.object({
+    name: joi.string().required(),
+    phone: joi.string().min(10).max(11).pattern(/^[0-9]+$/).required(),
+    cpf: joi.string().length(11).pattern(/^[0-9]+$/).required(),
+    birthday: joi.date().greater('1-1-1922').less('1-1-2010').required()
+});
+
 const {Pool} = pg;
 
 const connection = new Pool({
@@ -106,6 +113,78 @@ app.post('/games', async (req, res) => {
     connection.query(`INSERT INTO games (name, image, "stockTotal", "categoryId", "pricePerDay") VALUES ($1, $2, $3, $4, $5);`, [ name, image, stockTotal, categoryId, pricePerDay]).then(response => {
         res.sendStatus(201);
     });
+});
+
+app.get('/customers', (req, res) => {
+    const {cpf} = req.query;
+
+    if(cpf) {
+        connection.query(`SELECT * FROM customers WHERE SUBSTRING(customers.cpf, 1, ${cpf.length}) = $1;`,[cpf]).then(response => {
+            return res.status(200).send(response.rows);
+        });
+    }
+
+    connection.query('SELECT * FROM customers;').then(response => {
+        res.send(response.rows);
+    })
+});
+
+app.get('/customers/:id', async (req, res) => {
+    const {id} = req.params;
+
+    const sameId = await connection.query(`SELECT * FROM customers WHERE id = $1;`, [id]);
+
+    if(!sameId.rows[0]) {
+        return res.sendStatus(404);
+    }
+
+    connection.query('SELECT * FROM customers WHERE id = $1;', [id]).then(response => {
+        res.send(response.rows[0]);
+    });
+
+});
+
+app.post('/customers', async (req, res) => {
+    const {name, phone, cpf, birthday} = req.body;
+
+    const validation = customersSchema.validate(req.body, {abortEarly: false});
+
+    if(validation.error) {
+        const errors = validation.error.details.map (detail => detail.message);
+        return res.status(400).send(errors); 
+    }
+    const sameCpf = await connection.query(`SELECT * FROM customers WHERE cpf = $1;`, [cpf]);
+
+    if (sameCpf.rows[0]) {
+        return res.sendStatus(409);
+    }
+
+    connection.query(`INSERT INTO customers (name, phone, cpf, birthday) VALUES ($1, $2, $3, $4)`, [name, phone, cpf, birthday]).then( response => {
+        res.sendStatus(201);
+    });
+});
+
+app.put('/customers/:id', async (req, res) => {
+    const {id} = req.params;
+    const {name, phone, cpf, birthday} = req.body;
+
+    const validation = customersSchema.validate(req.body, {abortEarly: false});
+
+    if(validation.error) {
+        const errors = validation.error.details.map (detail => detail.message);
+        return res.status(400).send(errors); 
+    }
+
+    const sameCpf = await connection.query(`SELECT * FROM customers WHERE cpf = $1;`, [cpf]);
+
+    if (sameCpf.rows[0].id !== Number(id)) {
+        return res.sendStatus(409);
+    }
+
+    connection.query(`UPDATE customers SET name = $1, phone = $2, cpf = $3, birthday = $4 WHERE id = $5`,[name, phone, cpf, birthday, id]).then(response => {
+        res.sendStatus(200);
+    });
+    
 });
 
 app.listen(4000, ()=> {
